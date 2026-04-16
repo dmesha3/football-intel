@@ -3,6 +3,29 @@ import { users } from "@football-intel/db/src/schema/auth";
 import { countries, leagues, clubs, teams, seasons, playerContracts, players, matchEvents, matches } from "@football-intel/db/src/schema/core";
 import { eq } from "drizzle-orm";
 
+async function seedAdmin() {
+  const email = "admin@intel.com";
+  const password = "12341234";
+  const hashedPassword = await Bun.password.hash(password);
+
+  const existing = await db.query.users.findFirst({
+    where: (users, { eq }) => eq(users.email, email),
+  });
+
+  if (existing) {
+    console.log(`Admin user already exists: ${email}`);
+    return;
+  }
+
+  await db.insert(users).values({
+    email,
+    password: hashedPassword,
+    role: "SUPER_ADMIN",
+  });
+
+  console.log(`Admin user created: ${email} / ${password}`);
+}
+
 async function seed() {
   console.log("Seeding football-intel core data...");
 
@@ -48,9 +71,6 @@ async function seed() {
   }
 
   console.log("League:", league.name);
-
-  console.log("League: NBC Premier League");
-  console.log("Seeding complete");
 
   const clubData = [
     {
@@ -295,37 +315,9 @@ async function seed() {
 
     console.log(`Event: ${e.eventType} at ${e.minute}'`);
   }
-  
-  async function seedAdmin() {
-    const email = "admin@intel.com";
-    const password = "12341234";
-    const hashedPassword = await Bun.password.hash(password);
-  
-    try {
-      const existing = await db.query.users.findFirst({
-        where: (users, { eq }) => eq(users.email, email),
-      });
-  
-      if (existing) {
-        console.log("Admin user already exists");
-        process.exit(0);
-      }
-  
-      await db.insert(users).values({
-        email,
-        password: hashedPassword,
-        role: "SUPER_ADMIN",
-      });
-  
-      console.log(`Admin user created: ${email} / ${password}`);
-    } catch (error) {
-      console.error("Failed to seed admin", error);
-    }
-    process.exit(0);
-  }
-  
-  seedAdmin();
 
+  await seedAdmin();
+  console.log("Seeding complete");
 }
 
 seed()
