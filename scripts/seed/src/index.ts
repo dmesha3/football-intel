@@ -1,7 +1,7 @@
 import { db } from "@football-intel/db/src/client";
 import { users } from "@football-intel/db/src/schema/auth";
 import { countries, leagues, clubs, teams, seasons, playerContracts, players, matchEvents, matches } from "@football-intel/db/src/schema/core";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 async function seedAdmin() {
   const email = "admin@intel.com";
@@ -28,6 +28,8 @@ async function seedAdmin() {
 
 async function seed() {
   console.log("Seeding football-intel core data...");
+  const contractStartDate = "2023-07-01";
+  const seededMatchDate = new Date("2023-11-05T16:00:00Z");
 
   const [tanzania] = await db
     .insert(countries)
@@ -50,21 +52,26 @@ async function seed() {
 
   console.log("Country:", country.name);
 
-  const [nbcLeague] = await db
-    .insert(leagues)
-    .values({
-      name: "NBC Premier League",
-      countryId: country.id,
-      tier: 1,
-    })
-    .onConflictDoNothing()
-    .returning();
+  const existingLeague = await db.query.leagues.findFirst({
+    where: and(
+      eq(leagues.countryId, country.id),
+      eq(leagues.name, "NBC Premier League"),
+      eq(leagues.tier, 1),
+    ),
+  });
 
-  const league =
-    nbcLeague ??
-    (await db.query.leagues.findFirst({
-      where: eq(leagues.name, "NBC Premier League"),
-    }));
+  const [nbcLeague] = existingLeague
+    ? [existingLeague]
+    : await db
+        .insert(leagues)
+        .values({
+          name: "NBC Premier League",
+          countryId: country.id,
+          tier: 1,
+        })
+        .returning();
+
+  const league = nbcLeague;
 
   if (!league) {
     throw new Error("League not found or created");
@@ -120,23 +127,27 @@ async function seed() {
     console.log(`Club: ${club.name}`);
   }
 
-  const [season] = await db
-    .insert(seasons)
-    .values({
-      name: "2023/24",
-      leagueId: league.id,
-      startDate: "2023-08-01",
-      endDate: "2024-06-30",
-      isCurrent: true
-    })
-    .onConflictDoNothing()
-    .returning();
+  const existingSeason = await db.query.seasons.findFirst({
+    where: and(
+      eq(seasons.leagueId, league.id),
+      eq(seasons.name, "2023/24"),
+    ),
+  });
 
-  const currentSeason =
-    season ??
-    (await db.query.seasons.findFirst({
-      where: eq(seasons.name, "2023/24")
-    }));
+  const [season] = existingSeason
+    ? [existingSeason]
+    : await db
+        .insert(seasons)
+        .values({
+          name: "2023/24",
+          leagueId: league.id,
+          startDate: "2023-08-01",
+          endDate: "2024-06-30",
+          isCurrent: true
+        })
+        .returning();
+
+  const currentSeason = season;
 
   if (!currentSeason) {
     throw new Error("❌ Season not found");
@@ -144,11 +155,13 @@ async function seed() {
 
   console.log("Season:", currentSeason.name);
 
-  const clubList = await db.query.clubs.findMany({
-    where: eq(clubs.countryId, country.id)
-  });
+  for (const clubSeed of clubData) {
+    const club = await db.query.clubs.findFirst({
+      where: eq(clubs.slug, clubSeed.slug)
+    });
 
-  for (const club of clubList) {
+    if (!club) continue;
+
     await db
       .insert(teams)
       .values({
@@ -218,59 +231,83 @@ async function seed() {
     if (!player) continue;
 
     const team = await db.query.teams.findFirst({
-      where: eq(teams.name, p.teamName)
+      where: and(
+        eq(teams.seasonId, currentSeason.id),
+        eq(teams.name, p.teamName),
+      )
     });
 
     if (!team) continue;
 
-    await db
-      .insert(playerContracts)
-      .values({
-        playerId: player.id,
-        teamId: team.id,
-        position: p.position,
-        jerseyNumber: p.jerseyNumber,
-        startDate: "2023-07-01",
-        isCurrent: true
-      })
-      .onConflictDoNothing();
+    const existingContract = await db.query.playerContracts.findFirst({
+      where: and(
+        eq(playerContracts.playerId, player.id),
+        eq(playerContracts.teamId, team.id),
+        eq(playerContracts.startDate, contractStartDate),
+      )
+    });
+
+    if (!existingContract) {
+      await db
+        .insert(playerContracts)
+        .values({
+          playerId: player.id,
+          teamId: team.id,
+          position: p.position,
+          jerseyNumber: p.jerseyNumber,
+          startDate: contractStartDate,
+          isCurrent: true
+        });
+    }
 
     console.log(`Player: ${player.fullName} → ${p.teamName}`);
   }
 
   // 7. Match (Simba vs Young Africans)
   const simba = await db.query.teams.findFirst({
-    where: eq(teams.name, "Simba SC")
+    where: and(
+      eq(teams.seasonId, currentSeason.id),
+      eq(teams.name, "Simba SC"),
+    )
   });
 
   const yanga = await db.query.teams.findFirst({
-    where: eq(teams.name, "Young Africans SC")
+    where: and(
+      eq(teams.seasonId, currentSeason.id),
+      eq(teams.name, "Young Africans SC"),
+    )
   });
 
   if (!simba || !yanga) {
     throw new Error("❌ Teams not found for match");
   }
 
-  const [match] = await db
-    .insert(matches)
-    .values({
-      seasonId: currentSeason.id,
-      homeTeamId: simba.id,
-      awayTeamId: yanga.id,
-      matchDate: new Date("2023-11-05T16:00:00Z"),
-      venue: "Benjamin Mkapa Stadium",
-      status: "finished",
-      homeScore: 1,
-      awayScore: 1
-    })
-    .onConflictDoNothing()
-    .returning();
+  const existingMatch = await db.query.matches.findFirst({
+    where: and(
+      eq(matches.seasonId, currentSeason.id),
+      eq(matches.homeTeamId, simba.id),
+      eq(matches.awayTeamId, yanga.id),
+      eq(matches.matchDate, seededMatchDate),
+    )
+  });
 
-  const game =
-    match ??
-    (await db.query.matches.findFirst({
-      where: eq(matches.venue, "Benjamin Mkapa Stadium")
-    }));
+  const [match] = existingMatch
+    ? [existingMatch]
+    : await db
+        .insert(matches)
+        .values({
+          seasonId: currentSeason.id,
+          homeTeamId: simba.id,
+          awayTeamId: yanga.id,
+          matchDate: seededMatchDate,
+          venue: "Benjamin Mkapa Stadium",
+          status: "finished",
+          homeScore: 1,
+          awayScore: 1
+        })
+        .returning();
+
+  const game = match;
 
   if (!game) throw new Error("❌ Match not created");
 
