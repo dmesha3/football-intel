@@ -18,6 +18,12 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+!apps/api/.env.example
+!apps/admin/.env.local.example
+!apps/mobile/.env.local.example
+!packages/db/.env.example
+!scripts/seed/.env.example
+!services/data-ingestion/.env.example
 
 # prisma
 apps/**/prisma/migrations/

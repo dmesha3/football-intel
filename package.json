@@ -15,6 +15,7 @@
   },
 
   "scripts": {
+    "setup:env": "sh ./scripts/setup-local-env.sh",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",
